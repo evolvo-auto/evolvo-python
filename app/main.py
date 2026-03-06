@@ -51,6 +51,7 @@ except ImportError:
         sync_main_branch,
     )
     from task_file_counts import list_task_markdown_files
+    from task_file_validation import validate_task_file
     from task_selection import select_pending_task
     from tools.agent_tools import workspace_dir
     from tools.run_coding_agent import run_agent, run_coding_agent
