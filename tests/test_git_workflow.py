@@ -195,17 +195,24 @@ class GitWorkflowTests(unittest.TestCase):
 
         def fake_run_gh(root: Path, args: list[str]) -> CompletedProcess[str]:
             gh_calls.append(args)
-            if args[:3] == ["pr", "view", "evolvo/009-add-commit-system"]:
+            if args[:3] == ["pr", "view", "evolvo/009-add-commit-system"] and len(gh_calls) == 1:
                 return CompletedProcess(
                     args=["gh", *args],
                     returncode=1,
                     stdout="",
                     stderr="not found",
                 )
+            if args[:3] == ["pr", "view", "evolvo/009-add-commit-system"]:
+                return CompletedProcess(
+                    args=["gh", *args],
+                    returncode=0,
+                    stdout='{"number": 12, "url": "https://github.com/example/repo/pull/12"}',
+                    stderr="",
+                )
             return CompletedProcess(
                 args=["gh", *args],
                 returncode=0,
-                stdout='{"number": 12, "url": "https://github.com/example/repo/pull/12"}',
+                stdout="https://github.com/example/repo/pull/12\n",
                 stderr="",
             )
 
@@ -236,9 +243,8 @@ class GitWorkflowTests(unittest.TestCase):
                     "Task 009: add commit system",
                     "--body",
                     "body",
-                    "--json",
-                    "number,url",
                 ],
+                ["pr", "view", "evolvo/009-add-commit-system", "--json", "number,url"],
             ],
         )
 

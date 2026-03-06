@@ -267,13 +267,15 @@ def ensure_pull_request(
             title,
             "--body",
             body,
-            "--json",
-            "number,url",
         ],
     )
     if create_result.returncode != 0:
         raise RuntimeError(create_result.stderr.strip() or "gh pr create failed")
-    return _load_pull_request_info(create_result.stdout, branch_name)
+
+    created = get_pull_request(root, branch_name)
+    if created is None:
+        raise RuntimeError("gh pr create succeeded but the pull request could not be resolved")
+    return created
 
 
 def submit_pull_request_review(
