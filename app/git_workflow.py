@@ -1,4 +1,6 @@
+import base64
 import json
+import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,13 +18,61 @@ class PullRequestInfo:
     branch: str
 
 
-def _run_git(root: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["git", *args],
+def _get_github_token() -> str | None:
+    for key in ("GH_TOKEN", "GITHUB_TOKEN", "GITHUB_PAT"):
+        value = os.environ.get(key)
+        if value:
+            return value
+    return None
+
+
+def _build_github_auth_env() -> dict[str, str]:
+    env = os.environ.copy()
+    token = _get_github_token()
+    if token:
+        env["GH_TOKEN"] = token
+        env["GITHUB_TOKEN"] = token
+    return env
+
+
+def _origin_https_extraheader(root: Path) -> str | None:
+    token = _get_github_token()
+    if not token:
+        return None
+
+    remote_result = subprocess.run(
+        ["git", "remote", "get-url", "origin"],
         cwd=root,
         text=True,
         capture_output=True,
         check=False,
+        env=_build_github_auth_env(),
+    )
+    if remote_result.returncode != 0:
+        return None
+
+    remote_url = remote_result.stdout.strip()
+    if not remote_url.startswith("https://"):
+        return None
+
+    host = remote_url.split("/", 3)[2]
+    auth_value = base64.b64encode(f"x-access-token:{token}".encode("utf-8")).decode("ascii")
+    return f"http.https://{host}/.extraheader=AUTHORIZATION: basic {auth_value}"
+
+
+def _run_git(root: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
+    command = ["git", *args]
+    extraheader = _origin_https_extraheader(root)
+    if extraheader and args and args[0] in {"fetch", "pull", "push", "ls-remote"}:
+        command = ["git", "-c", extraheader, *args]
+
+    return subprocess.run(
+        command,
+        cwd=root,
+        text=True,
+        capture_output=True,
+        check=False,
+        env=_build_github_auth_env(),
     )
 
 
@@ -33,6 +83,7 @@ def _run_gh(root: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
         text=True,
         capture_output=True,
         check=False,
+        env=_build_github_auth_env(),
     )
 
 

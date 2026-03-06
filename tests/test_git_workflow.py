@@ -10,6 +10,8 @@ if str(ROOT) not in sys.path:
 
 from app.git_workflow import (
     PullRequestInfo,
+    _build_github_auth_env,
+    _origin_https_extraheader,
     build_cycle_commit_message,
     build_pull_request_title,
     build_review_fix_commit_message,
@@ -30,6 +32,29 @@ from app.git_workflow import (
 
 
 class GitWorkflowTests(unittest.TestCase):
+    def test_build_github_auth_env_uses_pat_from_environment(self) -> None:
+        with patch.dict("os.environ", {"GITHUB_PAT": "pat-123"}, clear=True):
+            env = _build_github_auth_env()
+
+        self.assertEqual(env["GH_TOKEN"], "pat-123")
+        self.assertEqual(env["GITHUB_TOKEN"], "pat-123")
+
+    def test_origin_https_extraheader_uses_token_for_https_remote(self) -> None:
+        with patch.dict("os.environ", {"GITHUB_PAT": "pat-123"}, clear=True):
+            with patch(
+                "app.git_workflow.subprocess.run",
+                return_value=CompletedProcess(
+                    args=["git", "remote", "get-url", "origin"],
+                    returncode=0,
+                    stdout="https://github.com/evolvo-auto/evolvo-python.git\n",
+                    stderr="",
+                ),
+            ):
+                header = _origin_https_extraheader(Path("."))
+
+        self.assertTrue(header is not None)
+        self.assertIn("http.https://github.com/.extraheader=AUTHORIZATION: basic ", header)
+
     def test_ensure_clean_git_raises_for_dirty_worktree(self) -> None:
         with patch(
             "app.git_workflow._run_git",
@@ -139,19 +164,31 @@ class GitWorkflowTests(unittest.TestCase):
         self.assertEqual(calls, [["checkout", "-b", "evolvo/009-add-commit-system", "main"]])
 
     def test_push_branch_sets_upstream(self) -> None:
-        calls: list[list[str]] = []
+        calls: list[tuple[list[str], dict[str, str] | None]] = []
 
-        def fake_run_git(root: Path, args: list[str]) -> CompletedProcess[str]:
-            calls.append(args)
-            return CompletedProcess(args=["git", *args], returncode=0, stdout="", stderr="")
+        def fake_subprocess_run(*args, **kwargs) -> CompletedProcess[str]:
+            command = list(args[0])
+            calls.append((command, kwargs.get("env")))
+            if command[:4] == ["git", "remote", "get-url", "origin"]:
+                return CompletedProcess(
+                    args=command,
+                    returncode=0,
+                    stdout="https://github.com/evolvo-auto/evolvo-python.git\n",
+                    stderr="",
+                )
+            return CompletedProcess(args=command, returncode=0, stdout="", stderr="")
 
-        with patch("app.git_workflow._run_git", side_effect=fake_run_git):
-            push_branch(Path("."), "evolvo/009-add-commit-system")
+        with patch.dict("os.environ", {"GITHUB_PAT": "pat-123"}, clear=True):
+            with patch("app.git_workflow.subprocess.run", side_effect=fake_subprocess_run):
+                push_branch(Path("."), "evolvo/009-add-commit-system")
 
+        self.assertEqual(calls[1][0][:3], ["git", "-c", calls[1][0][2]])
+        self.assertIn("http.https://github.com/.extraheader=AUTHORIZATION: basic ", calls[1][0][2])
         self.assertEqual(
-            calls,
-            [["push", "--set-upstream", "origin", "evolvo/009-add-commit-system"]],
+            calls[1][0][3:],
+            ["push", "--set-upstream", "origin", "evolvo/009-add-commit-system"],
         )
+        self.assertEqual(calls[1][1]["GH_TOKEN"], "pat-123")
 
     def test_ensure_pull_request_creates_when_missing(self) -> None:
         gh_calls: list[list[str]] = []
@@ -237,23 +274,26 @@ class GitWorkflowTests(unittest.TestCase):
         )
 
     def test_submit_pull_request_review_uses_expected_flag(self) -> None:
-        gh_calls: list[list[str]] = []
+        gh_calls: list[tuple[list[str], dict[str, str] | None]] = []
 
-        def fake_run_gh(root: Path, args: list[str]) -> CompletedProcess[str]:
-            gh_calls.append(args)
-            return CompletedProcess(args=["gh", *args], returncode=0, stdout="", stderr="")
+        def fake_subprocess_run(*args, **kwargs) -> CompletedProcess[str]:
+            command = list(args[0])
+            gh_calls.append((command, kwargs.get("env")))
+            return CompletedProcess(args=command, returncode=0, stdout="", stderr="")
 
-        with patch("app.git_workflow._run_gh", side_effect=fake_run_gh):
-            submit_pull_request_review(Path("."), 12, approved=False, body="REVISE: fix it")
-            submit_pull_request_review(Path("."), 12, approved=True, body="APPROVED: ready")
+        with patch.dict("os.environ", {"GITHUB_PAT": "pat-123"}, clear=True):
+            with patch("app.git_workflow.subprocess.run", side_effect=fake_subprocess_run):
+                submit_pull_request_review(Path("."), 12, approved=False, body="REVISE: fix it")
+                submit_pull_request_review(Path("."), 12, approved=True, body="APPROVED: ready")
 
         self.assertEqual(
-            gh_calls,
+            [call[0][1:] for call in gh_calls],
             [
                 ["pr", "review", "12", "--request-changes", "--body", "REVISE: fix it"],
                 ["pr", "review", "12", "--approve", "--body", "APPROVED: ready"],
             ],
         )
+        self.assertEqual(gh_calls[0][1]["GH_TOKEN"], "pat-123")
 
     def test_merge_and_sync_main_run_expected_commands(self) -> None:
         gh_calls: list[list[str]] = []
