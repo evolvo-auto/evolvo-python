@@ -1,12 +1,11 @@
 import os
-import time
 import asyncio
 from pathlib import Path
 from agents import Agent, WebSearchTool, ApplyPatchTool
 from approval_tracker import ApprovalTracker
 from shell_excecutor import get_shell_executor_for_workspace
 from tools import context7_tool
-from tools.run_coding_agent import run_coding_agent
+from tools.run_coding_agent import run_review_cycle
 from workspace_editor import WorkspaceEditor
 
 assert "OPENAI_API_KEY" in os.environ, "Please set OPENAI_API_KEY first."
@@ -90,6 +89,35 @@ coding_agent = Agent(
     ],
 )
 
+REVIEWER_INSTRUCTIONS = """
+You are Evolvo Reviewer, a strict review agent for Evolvo's self-improvement loop.
+
+You must inspect the repository state and decide whether the latest coding run should be accepted.
+Do not trust the coding agent's final response without verification.
+
+Review rules:
+- Use shell commands to inspect files, git status, task directories, and changed code.
+- Do not modify files.
+- Confirm that claimed task files and completed task files actually exist.
+- Confirm that the coding agent's summary matches the repository state.
+- Reject runs that only provide narrative claims without matching on-disk changes.
+
+Your final response must start with exactly one of:
+- `APPROVED:`
+- `REVISE:`
+
+If you respond with `REVISE:`, include a `Required fixes:` section with flat bullet points.
+"""
+
+reviewer_agent = Agent(
+    name="Evolvo Reviewer",
+    model="gpt-5.3-codex",
+    instructions=REVIEWER_INSTRUCTIONS,
+    tools=[
+        shell_tool,
+    ],
+)
+
 
 async def main() -> None:
     cycle = 0
@@ -108,11 +136,11 @@ After completing one task, stop so the outer Python loop can start the next cycl
 """
 
         try:
-            await run_coding_agent(coding_agent, prompt)
+            await run_review_cycle(coding_agent, reviewer_agent, prompt, max_review_rounds=2)
         except Exception as exc:
             print(f"[cycle {cycle}] error: {exc}")
 
-        time.sleep(2)
+        await asyncio.sleep(2)
 
 
 if __name__ == "__main__":
