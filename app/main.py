@@ -6,6 +6,7 @@ from agents import Agent, ApplyPatchTool, WebSearchTool
 
 try:
     from .approval_tracker import ApprovalTracker
+    from .env_loader import apply_dotenv
     from .git_workflow import (
         build_cycle_commit_message,
         commit_all_changes,
@@ -20,6 +21,7 @@ try:
     from .workspace_editor import WorkspaceEditor
 except ImportError:
     from approval_tracker import ApprovalTracker
+    from env_loader import apply_dotenv
     from git_workflow import (
         build_cycle_commit_message,
         commit_all_changes,
@@ -35,6 +37,7 @@ except ImportError:
 
 workspace_dir = Path("").resolve()
 workspace_dir.mkdir(exist_ok=True)
+apply_dotenv(workspace_dir)
 
 print(f"Workspace directory: {workspace_dir}")
 
