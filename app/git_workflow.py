@@ -1,4 +1,6 @@
+import json
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 try:
@@ -7,9 +9,26 @@ except ImportError:
     from conventional_commit import build_conventional_commit_message
 
 
+@dataclass
+class PullRequestInfo:
+    number: int
+    url: str
+    branch: str
+
+
 def _run_git(root: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["git", *args],
+        cwd=root,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+
+def _run_gh(root: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["gh", *args],
         cwd=root,
         text=True,
         capture_output=True,
@@ -29,6 +48,21 @@ def ensure_clean_git(root: Path) -> None:
     if status_lines:
         details = "\n".join(status_lines)
         raise RuntimeError(f"Git worktree is dirty. Refusing to start a run.\n{details}")
+
+
+def get_current_branch(root: Path) -> str:
+    result = _run_git(root, ["branch", "--show-current"])
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "git branch --show-current failed")
+    return result.stdout.strip()
+
+
+def ensure_on_main_branch(root: Path, base_branch: str = "main") -> None:
+    current_branch = get_current_branch(root)
+    if current_branch != base_branch:
+        raise RuntimeError(
+            f"Expected to start on {base_branch}, found {current_branch}. Refusing to start a run."
+        )
 
 
 def _parse_status_path(line: str) -> str:
@@ -72,6 +106,40 @@ def build_cycle_commit_message(completed_task_files: list[str]) -> str:
     )
 
 
+def build_review_fix_commit_message(task_filename: str) -> str:
+    description = _task_slug_to_description(task_filename)
+    if description:
+        suffix = description.removeprefix("complete ")
+        return build_conventional_commit_message(
+            "chore",
+            "evolvo",
+            f"address review feedback for {suffix}",
+        )
+
+    return build_conventional_commit_message(
+        "chore",
+        "evolvo",
+        "address review feedback",
+    )
+
+
+def build_task_branch_name(task_filename: str) -> str:
+    stem = Path(task_filename).stem.lower()
+    safe = "".join(ch if ch.isalnum() or ch == "-" else "-" for ch in stem)
+    safe = "-".join(part for part in safe.split("-") if part)
+    if not safe:
+        raise ValueError("task filename must contain a usable branch slug")
+    return f"evolvo/{safe}"
+
+
+def build_pull_request_title(task_filename: str) -> str:
+    stem = Path(task_filename).stem
+    if "-" in stem:
+        task_id, slug = stem.split("-", 1)
+        return f"Task {task_id}: {slug.replace('-', ' ')}"
+    return f"Task: {stem}"
+
+
 def commit_all_changes(root: Path, message: str) -> None:
     add_result = _run_git(root, ["add", "-A"])
     if add_result.returncode != 0:
@@ -80,3 +148,109 @@ def commit_all_changes(root: Path, message: str) -> None:
     commit_result = _run_git(root, ["commit", "-m", message])
     if commit_result.returncode != 0:
         raise RuntimeError(commit_result.stderr.strip() or "git commit failed")
+
+
+def create_task_branch(root: Path, branch_name: str, base_branch: str = "main") -> None:
+    result = _run_git(root, ["checkout", "-b", branch_name, base_branch])
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "git checkout -b failed")
+
+
+def push_branch(root: Path, branch_name: str) -> None:
+    result = _run_git(root, ["push", "--set-upstream", "origin", branch_name])
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "git push failed")
+
+
+def _load_pull_request_info(raw: str, branch_name: str) -> PullRequestInfo:
+    payload = json.loads(raw)
+    return PullRequestInfo(
+        number=int(payload["number"]),
+        url=str(payload["url"]),
+        branch=branch_name,
+    )
+
+
+def get_pull_request(root: Path, branch_name: str) -> PullRequestInfo | None:
+    result = _run_gh(root, ["pr", "view", branch_name, "--json", "number,url"])
+    if result.returncode != 0:
+        return None
+    return _load_pull_request_info(result.stdout, branch_name)
+
+
+def ensure_pull_request(
+    root: Path,
+    branch_name: str,
+    title: str,
+    body: str,
+    base_branch: str = "main",
+) -> PullRequestInfo:
+    existing = get_pull_request(root, branch_name)
+    if existing is not None:
+        edit_result = _run_gh(
+            root,
+            [
+                "pr",
+                "edit",
+                str(existing.number),
+                "--title",
+                title,
+                "--body",
+                body,
+            ],
+        )
+        if edit_result.returncode != 0:
+            raise RuntimeError(edit_result.stderr.strip() or "gh pr edit failed")
+        return existing
+
+    create_result = _run_gh(
+        root,
+        [
+            "pr",
+            "create",
+            "--base",
+            base_branch,
+            "--head",
+            branch_name,
+            "--title",
+            title,
+            "--body",
+            body,
+            "--json",
+            "number,url",
+        ],
+    )
+    if create_result.returncode != 0:
+        raise RuntimeError(create_result.stderr.strip() or "gh pr create failed")
+    return _load_pull_request_info(create_result.stdout, branch_name)
+
+
+def submit_pull_request_review(
+    root: Path,
+    pr_number: int,
+    approved: bool,
+    body: str,
+) -> None:
+    decision_flag = "--approve" if approved else "--request-changes"
+    result = _run_gh(
+        root,
+        ["pr", "review", str(pr_number), decision_flag, "--body", body],
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "gh pr review failed")
+
+
+def merge_pull_request(root: Path, pr_number: int) -> None:
+    result = _run_gh(root, ["pr", "merge", str(pr_number), "--squash", "--delete-branch"])
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "gh pr merge failed")
+
+
+def sync_main_branch(root: Path, base_branch: str = "main") -> None:
+    checkout_result = _run_git(root, ["checkout", base_branch])
+    if checkout_result.returncode != 0:
+        raise RuntimeError(checkout_result.stderr.strip() or "git checkout main failed")
+
+    pull_result = _run_git(root, ["pull", "--ff-only", "origin", base_branch])
+    if pull_result.returncode != 0:
+        raise RuntimeError(pull_result.stderr.strip() or "git pull failed")

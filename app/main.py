@@ -2,41 +2,57 @@ import asyncio
 import os
 from pathlib import Path
 
-from agents import Agent, ApplyPatchTool, WebSearchTool
-
 try:
-    from .approval_tracker import ApprovalTracker
+    from .agent_roles.coding_agent import coding_agent
+    from .agent_roles.review_agent import reviewer_agent
     from .env_loader import apply_dotenv
     from .git_workflow import (
         build_cycle_commit_message,
+        build_pull_request_title,
+        build_review_fix_commit_message,
+        build_task_branch_name,
         commit_all_changes,
+        create_task_branch,
         ensure_clean_git,
+        ensure_on_main_branch,
+        ensure_pull_request,
         get_changed_paths,
         has_code_changes,
+        merge_pull_request,
+        push_branch,
+        submit_pull_request_review,
+        sync_main_branch,
     )
-    from .shell_excecutor import get_shell_executor_for_workspace
     from .task_file_counts import list_task_markdown_files
-    from .tools import context7_tool
-    from .tools.run_coding_agent import run_review_cycle
-    from .workspace_editor import WorkspaceEditor
+    from .task_selection import select_pending_task
+    from .tools.agent_tools import workspace_dir
+    from .tools.run_coding_agent import run_agent, run_coding_agent
 except ImportError:
-    from approval_tracker import ApprovalTracker
+    from agent_roles.coding_agent import coding_agent
+    from agent_roles.review_agent import reviewer_agent
     from env_loader import apply_dotenv
     from git_workflow import (
         build_cycle_commit_message,
+        build_pull_request_title,
+        build_review_fix_commit_message,
+        build_task_branch_name,
         commit_all_changes,
+        create_task_branch,
         ensure_clean_git,
+        ensure_on_main_branch,
+        ensure_pull_request,
         get_changed_paths,
         has_code_changes,
+        merge_pull_request,
+        push_branch,
+        submit_pull_request_review,
+        sync_main_branch,
     )
-    from shell_excecutor import get_shell_executor_for_workspace
     from task_file_counts import list_task_markdown_files
-    from tools import context7_tool
-    from tools.run_coding_agent import run_review_cycle
-    from workspace_editor import WorkspaceEditor
+    from task_selection import select_pending_task
+    from tools.agent_tools import workspace_dir
+    from tools.run_coding_agent import run_agent, run_coding_agent
 
-workspace_dir = Path("").resolve()
-workspace_dir.mkdir(exist_ok=True)
 apply_dotenv(workspace_dir)
 
 print(f"Workspace directory: {workspace_dir}")
@@ -72,115 +88,6 @@ def summarize_task_reconciliation(root: Path) -> dict[str, list[str]]:
     }
 
 
-shell_tool = get_shell_executor_for_workspace(workspace_dir)
-
-
-INSTRUCTIONS = """
-You are Evolvo, a self-improving coding agent working only on your own codebase.
-
-You are explicitly allowed to modify your own core implementation files when that helps you improve.
-Your own runtime, orchestration, prompts, task system, and supporting tooling are valid targets for self-improvement.
-
-Editable areas include:
-- `./app/main.py`
-- `./app/tools/**`
-- `./app/*.py`
-- `./app/**/*.py`
-- `./tasks/**`
-- `./completed_tasks/**`
-- `./tests/**`
-
-Treat these files as your primary self-improvement surface.
-
-Protected / restricted behavior:
-- Do not edit files outside the repository.
-- Do not edit secrets or environment files such as `.env` unless explicitly instructed.
-- Do not edit dependency lockfiles unless required by an intentional dependency change.
-- Do not make broad unrelated refactors.
-- Prefer small, local, reviewable improvements.
-
-Mandatory workflow for every run:
-1. Ensure the directories `./tasks/` and `./completed_tasks/` exist.
-2. If there are fewer than 3 task markdown files in `./tasks/`, create enough task files to bring the total to 3.
-3. Each task must be a separate markdown file in `./tasks/`.
-4. Choose exactly one task from `./tasks/` as the active task for this run.
-5. Execute work for that task.
-6. When the task is complete, append a reflection section to that task file and move it to `./completed_tasks/`.
-7. After completing exactly one task, stop. The outer Python runtime will run review and handle commits.
-
-Hard rules:
-- Do not merely describe tasks in your final answer. You must create the files.
-- A run is not complete unless the required task files exist on disk.
-- Before claiming that a task exists, verify it with shell commands.
-- Before claiming that a task was completed, verify the file was moved to `./completed_tasks/`.
-- Always prefer concrete actions over narrative summaries.
-- Do not run `git add`, `git commit`, or other git history-writing commands. The outer runtime handles commits after review approval.
-
-Editing rules:
-- Never edit code via shell commands.
-- Always read the file first using `cat`.
-- Then generate a unified diff relative to exactly that content.
-- Use apply_patch only once per edit attempt.
-- If apply_patch fails, stop and report the error; do not retry.
-
-You may use shell commands to inspect the repo, create directories, list files, and verify state.
-You may use apply_patch to create and edit markdown/code files.
-You may use web search and Context7 when needed.
-
-Your final response must include:
-- the exact task files currently in `./tasks/`
-- the exact files moved to `./completed_tasks/` in this run
-- the exact code files changed in this run
-"""
-
-
-approvals = ApprovalTracker()
-editor = WorkspaceEditor(root=workspace_dir, approvals=approvals, auto_approve=True)
-apply_patch_tool = ApplyPatchTool(editor=editor)
-
-
-coding_agent = Agent(
-    name="Evolvo",
-    model="gpt-5.3-codex",
-    instructions=INSTRUCTIONS,
-    tools=[
-        WebSearchTool(),
-        shell_tool,
-        apply_patch_tool,
-        context7_tool.context7_tool,
-    ],
-)
-
-
-REVIEWER_INSTRUCTIONS = """
-You are Evolvo Reviewer, a strict review agent for Evolvo's self-improvement loop.
-
-You must inspect the repository state and decide whether the latest coding run should be accepted.
-Do not trust the coding agent's final response without verification.
-
-Review rules:
-- Use shell commands to inspect files, git status, task directories, and changed code.
-- Do not modify files.
-- Confirm that claimed task files and completed task files actually exist.
-- Confirm that the coding agent's summary matches the repository state.
-- Reject runs that only provide narrative claims without matching on-disk changes.
-
-Your final response must start with exactly one of:
-- `APPROVED:`
-- `REVISE:`
-
-If you respond with `REVISE:`, include a `Required fixes:` section with flat bullet points.
-"""
-
-
-reviewer_agent = Agent(
-    name="Evolvo Reviewer",
-    model="gpt-5.3-codex",
-    instructions=REVIEWER_INSTRUCTIONS,
-    tools=[shell_tool],
-)
-
-
 def _snapshot_completed_tasks() -> set[str]:
     completed_dir = workspace_dir / "completed_tasks"
     if not completed_dir.exists():
@@ -188,37 +95,153 @@ def _snapshot_completed_tasks() -> set[str]:
     return set(list_task_markdown_files(completed_dir))
 
 
-async def _run_cycle(cycle: int) -> None:
-    ensure_clean_git(workspace_dir)
-
-    completed_before = _snapshot_completed_tasks()
-
-    prompt = f"""
+def _build_task_prompt(cycle: int, active_task: Path, branch_name: str, pr_url: str | None) -> str:
+    pr_line = f"Pull request: {pr_url}" if pr_url else "Pull request: not created yet"
+    return f"""
 Cycle {cycle}.
 
 Continue the self-improvement cycle.
 Complete exactly one task this run.
-If fewer than 3 pending tasks exist in ./tasks/, evaluate the repository and create more tasks that would aid the self-improvement process before starting.
-After completing one task, stop so the outer Python loop can start the next cycle.
+The active task for this run is `{active_task.as_posix()}`.
+Work only on that task and any directly necessary supporting code changes.
+Git branch for this task: `{branch_name}`.
+{pr_line}
+If fewer than 3 pending tasks exist in ./tasks/, you may create additional task files before finishing the active task.
+After completing the active task, stop so the outer Python loop can handle commit, push, PR review, and merge.
 """.strip()
 
-    await run_review_cycle(coding_agent, reviewer_agent, prompt, max_review_rounds=2)
 
-    changed_paths = get_changed_paths(workspace_dir)
-    if not changed_paths:
-        print(f"[cycle {cycle}] review passed with no repository changes; skipping commit")
-        return
-
-    completed_after = _snapshot_completed_tasks()
-    completed_this_cycle = sorted(completed_after - completed_before)
-    commit_message = build_cycle_commit_message(completed_this_cycle)
-    commit_all_changes(workspace_dir, commit_message)
-
-    code_changes = has_code_changes(changed_paths)
-    code_change_label = "with code changes" if code_changes else "without code changes"
-    print(
-        f"[cycle {cycle}] committed {len(changed_paths)} file(s) {code_change_label}: {commit_message}"
+def _build_pull_request_body(active_task: Path, cycle: int) -> str:
+    return "\n".join(
+        [
+            f"Automated task branch for `{active_task.name}`.",
+            "",
+            f"- Cycle: {cycle}",
+            f"- Task file: `{active_task.as_posix()}`",
+            "- Reviewer feedback is posted back as PR reviews.",
+        ]
     )
+
+
+def _review_is_approved(review_output: str) -> bool:
+    return review_output.lstrip().upper().startswith("APPROVED:")
+
+
+def _build_pr_review_prompt(
+    active_task: Path,
+    pr_number: int,
+    pr_url: str,
+    coding_output: str,
+    review_round: int,
+) -> str:
+    return f"""
+Review round {review_round}.
+
+Active task file: {active_task.as_posix()}
+Pull request number: {pr_number}
+Pull request URL: {pr_url}
+
+Coding agent final response:
+{coding_output}
+
+Review requirements:
+- Review the pull request itself, not just the coding agent narrative. Use `gh pr view`, `gh pr diff`, and shell inspection as needed.
+- Verify that the active task was completed correctly and that any claimed completed task move actually happened.
+- Verify that the code and tests on the branch match the coding agent's summary.
+- Approve only if the PR is ready to merge into `main`.
+
+Respond in exactly one of these forms:
+APPROVED: <short reason>
+REVISE: <short reason>
+
+If you respond with REVISE, add a section named `Required fixes:` with flat bullet points.
+Your response will be posted back to the PR as the review body.
+""".strip()
+
+
+async def _run_cycle(cycle: int) -> None:
+    ensure_clean_git(workspace_dir)
+    ensure_on_main_branch(workspace_dir)
+
+    active_task = select_pending_task(workspace_dir / "tasks")
+    branch_name = build_task_branch_name(active_task.name)
+    create_task_branch(workspace_dir, branch_name)
+
+    completed_before = _snapshot_completed_tasks()
+    review_feedback: str | None = None
+    pr_url: str | None = None
+
+    for review_round in range(1, 3):
+        prompt = _build_task_prompt(cycle, active_task, branch_name, pr_url)
+        if review_feedback:
+            prompt = (
+                f"{prompt}\n\n"
+                "Reviewer feedback from the previous PR review:\n"
+                f"{review_feedback}\n\n"
+                "Address every required fix before stopping."
+            )
+
+        coding_summary = await run_coding_agent(coding_agent, prompt)
+
+        changed_paths = get_changed_paths(workspace_dir)
+        if not changed_paths:
+            raise RuntimeError("Coding agent finished without any repository changes to commit.")
+
+        completed_after = _snapshot_completed_tasks()
+        completed_this_cycle = sorted(completed_after - completed_before)
+        commit_message = (
+            build_review_fix_commit_message(active_task.name)
+            if review_feedback
+            else build_cycle_commit_message(completed_this_cycle)
+        )
+        commit_all_changes(workspace_dir, commit_message)
+        push_branch(workspace_dir, branch_name)
+
+        pr = ensure_pull_request(
+            workspace_dir,
+            branch_name,
+            build_pull_request_title(active_task.name),
+            _build_pull_request_body(active_task, cycle),
+        )
+        pr_url = pr.url
+
+        review_summary = await run_agent(
+            reviewer_agent,
+            _build_pr_review_prompt(
+                active_task,
+                pr.number,
+                pr.url,
+                coding_summary.final_output,
+                review_round,
+            ),
+            agent_label="review",
+        )
+
+        approved = _review_is_approved(review_summary.final_output)
+        submit_pull_request_review(
+            workspace_dir,
+            pr.number,
+            approved=approved,
+            body=review_summary.final_output,
+        )
+
+        if approved:
+            merge_pull_request(workspace_dir, pr.number)
+            sync_main_branch(workspace_dir)
+            code_change_label = (
+                "with code changes"
+                if has_code_changes(changed_paths)
+                else "without code changes"
+            )
+            print(
+                f"[cycle {cycle}] merged PR #{pr.number} {code_change_label}: {commit_message}"
+            )
+            return
+
+        review_feedback = review_summary.final_output
+        completed_before = completed_after
+
+    raise RuntimeError("Reviewer rejected the pull request too many times.")
 
 
 async def main() -> None:
