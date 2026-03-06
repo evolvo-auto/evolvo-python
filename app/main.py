@@ -1,65 +1,85 @@
 import os
+import time
 import asyncio
 from pathlib import Path
-from agents import Agent, Runner, WebSearchTool, ApplyPatchTool
+from agents import Agent, WebSearchTool, ApplyPatchTool
 from approval_tracker import ApprovalTracker
 from shell_excecutor import get_shell_executor_for_workspace
 from tools import context7_tool
 from tools.run_coding_agent import run_coding_agent
 from workspace_editor import WorkspaceEditor
 
-# Make sure your OpenAI API key is defined (you can set it on your global environment, or export it manually)
-# export OPENAI_API_KEY="sk-..."
 assert "OPENAI_API_KEY" in os.environ, "Please set OPENAI_API_KEY first."
-
 
 workspace_dir = Path("").resolve()
 workspace_dir.mkdir(exist_ok=True)
 
 print(f"Workspace directory: {workspace_dir}")
 
-
 shell_tool = get_shell_executor_for_workspace(workspace_dir)
 
-
 INSTRUCTIONS = """
-You are "Evolvo" a self evolving coding agent.
-Your main goal is to evolve yourself to become a competent coding assistant that can solve a wide range of coding tasks.
-To achieve this, you have access to the following tools:
-- A web search tool to search the web for information.
-- A shell tool to run shell commands in a safe and controlled manner.
-- An apply_patch tool to edit files in the workspace via unified diffs.
-- The Context7 MCP tool to interact with external APIs and fetch documentation.
+You are Evolvo, a self-improving coding agent working only on your own codebase.
 
-To achieve your goal you should analyse yourself and iteratively improve by using the tools at your disposal.
-You should go through a planning stage and create tasks in "./tasks/" as a markdown file to keep track of what you need to do, and then execute those tasks.
-Once a task is completed you should move it to "./completed_tasks/".
-You can also create a "notes.txt" file in the workspace to keep track of any insights or information you find along the way.
-Once out of tasks you should create more tasks based on your analysis of yourself and the information you find.
-You dont need to have completed all tasks to create new ones. But all tasks should be relevant and contribute to your overall goal of becoming a competent coding assistant.
-When you have finished a task, you should write a reflection on how it went and what you learned from it in the task file that you moved to "./completed_tasks/".
-When you have finished a single task you should quit and wait to be restarted.
+You are explicitly allowed to modify your own core implementation files when that helps you improve.
+Your own runtime, orchestration, prompts, task system, and supporting tooling are valid targets for self-improvement.
 
-Use the apply_patch tool to edit files based on their feedback. 
-When editing files:
+Editable areas include:
+- `./app/main.py`
+- `./app/tools/**`
+- `./app/*.py`
+- `./app/**/*.py`
+- `./tasks/**`
+- `./completed_tasks/**`
+
+Treat these files as your primary self-improvement surface.
+
+Protected / restricted behavior:
+- Do not edit files outside the repository.
+- Do not edit secrets or environment files such as `.env` unless explicitly instructed.
+- Do not edit dependency lockfiles unless required by an intentional dependency change.
+- Do not make broad unrelated refactors.
+- Prefer small, local, reviewable improvements.
+
+Mandatory workflow for every run:
+1. Ensure the directories `./tasks/` and `./completed_tasks/` exist.
+2. If there are fewer than 3 task markdown files in `./tasks/`, create enough task files to bring the total to 3.
+3. Each task must be a separate markdown file in `./tasks/`.
+4. Choose exactly one task from `./tasks/` as the active task for this run.
+5. Execute work for that task.
+6. When the task is complete, append a reflection section to that task file and move it to `./completed_tasks/`.
+7. After completing exactly one task, stop. The outer Python runtime will start the next cycle.
+
+Hard rules:
+- Do not merely describe tasks in your final answer. You must create the files.
+- A run is not complete unless the required task files exist on disk.
+- Before claiming that a task exists, verify it with shell commands.
+- Before claiming that a task was completed, verify the file was moved to `./completed_tasks/`.
+- Always prefer concrete actions over narrative summaries.
+
+Editing rules:
 - Never edit code via shell commands.
-- Always read the file first using `cat` with the shell tool.
-- Then generate a unified diff relative to EXACTLY that content.
+- Always read the file first using `cat`.
+- Then generate a unified diff relative to exactly that content.
 - Use apply_patch only once per edit attempt.
-- If apply_patch fails, stop and report the error; do NOT retry.
-You can search the web to find which command you should use based on the technical stack, and use commands to install dependencies if needed.
-When the user refers to an external API, use the Context7 MCP server to fetch docs for that API.
-For example, if they want to use the OpenAI API, search docs for the openai-python or openai-node sdk depending on the project stack.
-"""
+- If apply_patch fails, stop and report the error; do not retry.
 
+You may use shell commands to inspect the repo, create directories, list files, and verify state.
+You may use apply_patch to create and edit markdown/code files.
+You may use web search and Context7 when needed.
+
+Your final response must include:
+- the exact task files currently in `./tasks/`
+- the exact files moved to `./completed_tasks/` in this run
+- the exact code files changed in this run
+"""
 
 approvals = ApprovalTracker()
 editor = WorkspaceEditor(root=workspace_dir, approvals=approvals, auto_approve=True)
 apply_patch_tool = ApplyPatchTool(editor=editor)
 
-
 coding_agent = Agent(
-    name="Updated Coding Agent",
+    name="Evolvo",
     model="gpt-5.3-codex",
     instructions=INSTRUCTIONS,
     tools=[
@@ -70,6 +90,30 @@ coding_agent = Agent(
     ],
 )
 
+
+async def main() -> None:
+    cycle = 0
+
+    while True:
+        cycle += 1
+        print(f"\n=== Evolvo cycle {cycle} ===")
+
+        prompt = f"""
+Cycle {cycle}.
+
+Continue the self-improvement cycle.
+Complete exactly one task this run.
+If fewer than 3 pending tasks exist in ./tasks/, evaluate the repository and create more tasks that would aid the self-improvement process before starting.
+After completing one task, stop so the outer Python loop can start the next cycle.
+"""
+
+        try:
+            await run_coding_agent(coding_agent, prompt)
+        except Exception as exc:
+            print(f"[cycle {cycle}] error: {exc}")
+
+        time.sleep(2)
+
+
 if __name__ == "__main__":
-    prompt = "Define your first 3 tasks and start working on the first one."
-    asyncio.run(run_coding_agent(coding_agent, prompt))
+    asyncio.run(main())
