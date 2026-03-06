@@ -10,3 +10,7 @@ Core task-selection helpers should be validated with unit tests to avoid regress
 ## Acceptance Criteria
 - New tests are added under `tests/`.
 - Tests pass locally.
+
+## Reflection
+- Added unit tests for deterministic selection and edge cases (missing directory, no markdown files).
+- Verified tests pass locally via unittest.
