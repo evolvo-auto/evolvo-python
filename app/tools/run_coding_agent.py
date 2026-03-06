@@ -1,3 +1,4 @@
+import os
 from dataclasses import dataclass
 
 from agents import Agent, ItemHelpers, Runner
@@ -7,6 +8,19 @@ from agents import Agent, ItemHelpers, Runner
 class AgentRunSummary:
     final_output: str
     apply_patch_seen: bool
+
+
+def _get_max_turns() -> int:
+    raw_value = os.environ.get("EVOLVO_MAX_TURNS", "").strip()
+    if not raw_value:
+        return 10
+
+    try:
+        parsed = int(raw_value)
+    except ValueError:
+        return 10
+
+    return parsed if parsed > 0 else 10
 
 
 def _truncate_output(value: str, limit: int = 400) -> str:
@@ -29,7 +43,7 @@ async def run_agent(agent: Agent, prompt: str, agent_label: str) -> AgentRunSumm
     print(f"[user] {prompt}\n")
 
     apply_patch_seen = False
-    result = Runner.run_streamed(agent, input=prompt)
+    result = Runner.run_streamed(agent, input=prompt, max_turns=_get_max_turns())
 
     async for event in result.stream_events():
         if event.type != "run_item_stream_event":
