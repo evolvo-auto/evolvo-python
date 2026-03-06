@@ -97,6 +97,150 @@ def _snapshot_completed_tasks() -> set[str]:
     return set(list_task_markdown_files(completed_dir))
 
 
+def _list_pending_tasks() -> list[str]:
+    tasks_dir = workspace_dir / "tasks"
+    if not tasks_dir.exists():
+        return []
+    return list_task_markdown_files(tasks_dir)
+
+
+def _build_bootstrap_branch_name(cycle: int) -> str:
+    return f"evolvo/bootstrap-tasks-cycle-{cycle}"
+
+
+def _build_bootstrap_prompt(cycle: int, branch_name: str, pr_url: str | None) -> str:
+    pr_line = f"Pull request: {pr_url}" if pr_url else "Pull request: not created yet"
+    return f"""
+Cycle {cycle}.
+
+There are no pending task markdown files in `./tasks/`.
+This run is only for backlog bootstrapping.
+Analyze the repository and create at least 3 new task markdown files in `./tasks/`.
+Do not complete an existing task in this bootstrap run.
+Git branch for this bootstrap run: `{branch_name}`.
+{pr_line}
+After creating the new task files, stop so the outer Python loop can handle commit, push, PR review, and merge.
+""".strip()
+
+
+def _build_bootstrap_pr_body(cycle: int) -> str:
+    return "\n".join(
+        [
+            "Automated backlog bootstrap for Evolvo.",
+            "",
+            f"- Cycle: {cycle}",
+            "- Goal: create fresh task files because ./tasks/ was empty",
+        ]
+    )
+
+
+def _build_bootstrap_review_prompt(
+    pr_number: int,
+    pr_url: str,
+    coding_output: str,
+    review_round: int,
+) -> str:
+    return f"""
+Review round {review_round}.
+
+Bootstrap review for pending-task generation.
+Pull request number: {pr_number}
+Pull request URL: {pr_url}
+
+Coding agent final response:
+{coding_output}
+
+Review requirements:
+- Review the pull request itself, not just the coding agent narrative.
+- Verify that `./tasks/` now contains at least 3 valid markdown task files.
+- Verify that the task files are concrete and relevant to improving the repository.
+- Approve only if the backlog bootstrap result is ready to merge into `main`.
+
+Respond in exactly one of these forms:
+APPROVED: <short reason>
+REVISE: <short reason>
+
+If you respond with REVISE, add a section named `Required fixes:` with flat bullet points.
+Your response will be posted back to the PR as the review body.
+""".strip()
+
+
+async def _bootstrap_tasks_if_needed(cycle: int) -> None:
+    if _list_pending_tasks():
+        return
+
+    branch_name = _build_bootstrap_branch_name(cycle)
+    create_task_branch(workspace_dir, branch_name)
+    review_feedback: str | None = None
+    pr_url: str | None = None
+
+    for review_round in range(1, 3):
+        prompt = _build_bootstrap_prompt(cycle, branch_name, pr_url)
+        if review_feedback:
+            prompt = (
+                f"{prompt}\n\n"
+                "Reviewer feedback from the previous PR review:\n"
+                f"{review_feedback}\n\n"
+                "Address every required fix before stopping."
+            )
+
+        coding_summary = await run_coding_agent(coding_agent, prompt)
+
+        pending_tasks = _list_pending_tasks()
+        if len(pending_tasks) < 3:
+            raise RuntimeError(
+                "Bootstrap run finished without creating at least 3 pending task files."
+            )
+
+        changed_paths = get_changed_paths(workspace_dir)
+        if not changed_paths:
+            raise RuntimeError("Bootstrap run finished without any repository changes to commit.")
+
+        commit_message = build_cycle_commit_message([])
+        if review_feedback:
+            commit_message = build_review_fix_commit_message("bootstrap-tasks.md")
+
+        commit_all_changes(workspace_dir, commit_message)
+        push_branch(workspace_dir, branch_name)
+
+        pr = ensure_pull_request(
+            workspace_dir,
+            branch_name,
+            f"Bootstrap tasks cycle {cycle}",
+            _build_bootstrap_pr_body(cycle),
+        )
+        pr_url = pr.url
+
+        review_summary = await run_agent(
+            reviewer_agent,
+            _build_bootstrap_review_prompt(
+                pr.number,
+                pr.url,
+                coding_summary.final_output,
+                review_round,
+            ),
+            agent_label="review",
+        )
+
+        approved = _review_is_approved(review_summary.final_output)
+        submit_pull_request_review(
+            workspace_dir,
+            pr.number,
+            approved=approved,
+            body=review_summary.final_output,
+        )
+
+        if approved:
+            merge_pull_request(workspace_dir, pr.number)
+            sync_main_branch(workspace_dir)
+            print(f"[cycle {cycle}] merged bootstrap PR #{pr.number}")
+            return
+
+        review_feedback = review_summary.final_output
+
+    raise RuntimeError("Reviewer rejected the bootstrap task PR too many times.")
+
+
 def _build_task_prompt(cycle: int, active_task: Path, branch_name: str, pr_url: str | None) -> str:
     pr_line = f"Pull request: {pr_url}" if pr_url else "Pull request: not created yet"
     return f"""
@@ -164,6 +308,7 @@ Your response will be posted back to the PR as the review body.
 async def _run_cycle(cycle: int) -> None:
     ensure_clean_git(workspace_dir)
     ensure_on_main_branch(workspace_dir)
+    await _bootstrap_tasks_if_needed(cycle)
 
     active_task = select_pending_task(workspace_dir / "tasks")
     is_valid_task, missing_headers = validate_task_file(active_task)
