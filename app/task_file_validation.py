@@ -6,7 +6,10 @@ from pathlib import Path
 
 
 REQUIRED_HEADERS: tuple[str, ...] = (
-    "# Task",
+    "# Task:",
+    "## Why",
+    "## Scope",
+    "## Acceptance Criteria",
 )
 
 
@@ -17,4 +20,3 @@ def validate_task_file(task_file: str | Path) -> tuple[bool, list[str]]:
 
     missing_headers = [header for header in REQUIRED_HEADERS if header not in content]
     return (len(missing_headers) == 0, missing_headers)
-

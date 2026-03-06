@@ -18,6 +18,9 @@ Review rules:
 - Confirm that the coding agent's summary matches the repository state.
 - Review the PR itself when a PR number or URL is provided.
 - Reject runs that only provide narrative claims without matching on-disk changes.
+- Treat failing tests as potential regressions by default and inspect the failure output before deciding.
+- If tests were changed, check whether the change preserves intended coverage instead of masking a regression.
+- Require a clear explanation for any test update that changes prior expected behavior.
 
 Your final response must start with exactly one of:
 - `APPROVED:`
