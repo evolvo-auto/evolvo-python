@@ -279,7 +279,7 @@ class GitWorkflowTests(unittest.TestCase):
             ],
         )
 
-    def test_submit_pull_request_review_uses_expected_flag(self) -> None:
+    def test_submit_pull_request_review_uses_comment_only_reviews(self) -> None:
         gh_calls: list[tuple[list[str], dict[str, str] | None]] = []
 
         def fake_subprocess_run(*args, **kwargs) -> CompletedProcess[str]:
@@ -295,8 +295,8 @@ class GitWorkflowTests(unittest.TestCase):
         self.assertEqual(
             [call[0][1:] for call in gh_calls],
             [
-                ["pr", "review", "12", "--request-changes", "--body", "REVISE: fix it"],
-                ["pr", "review", "12", "--approve", "--body", "APPROVED: ready"],
+                ["pr", "review", "12", "--comment", "--body", "REVISE: fix it"],
+                ["pr", "review", "12", "--comment", "--body", "APPROVED: ready"],
             ],
         )
         self.assertEqual(gh_calls[0][1]["GH_TOKEN"], "pat-123")

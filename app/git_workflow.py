@@ -284,10 +284,15 @@ def submit_pull_request_review(
     approved: bool,
     body: str,
 ) -> None:
-    decision_flag = "--approve" if approved else "--request-changes"
+    review_body = body
+    if approved and not body.lstrip().upper().startswith("APPROVED:"):
+        review_body = f"APPROVED: {body}"
+    if not approved and not body.lstrip().upper().startswith("REVISE:"):
+        review_body = f"REVISE: {body}"
+
     result = _run_gh(
         root,
-        ["pr", "review", str(pr_number), decision_flag, "--body", body],
+        ["pr", "review", str(pr_number), "--comment", "--body", review_body],
     )
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or "gh pr review failed")
