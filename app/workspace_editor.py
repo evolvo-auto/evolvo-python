@@ -4,11 +4,14 @@ import os
 from pathlib import Path
 
 from agents import ApplyPatchOperation
-
 from agents import ApplyPatchResult
 
-from approval_tracker import ApprovalTracker
-from tools.apply_unified_diff import apply_unified_diff
+try:
+    from .approval_tracker import ApprovalTracker
+    from .tools.apply_unified_diff import apply_unified_diff
+except ImportError:
+    from approval_tracker import ApprovalTracker
+    from tools.apply_unified_diff import apply_unified_diff
 
 
 class WorkspaceEditor:
@@ -91,4 +94,3 @@ class WorkspaceEditor:
         if answer not in {"y", "yes"}:
             raise RuntimeError("Apply patch operation rejected by user.")
         self._approvals.remember(fingerprint)
-
