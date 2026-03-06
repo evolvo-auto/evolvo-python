@@ -98,6 +98,23 @@ def _snapshot_completed_tasks() -> set[str]:
     return set(list_task_markdown_files(completed_dir))
 
 
+def _mark_task_failed(task_file: Path, reason: str) -> Path:
+    failed_dir = workspace_dir / "failed_tasks"
+    failed_dir.mkdir(parents=True, exist_ok=True)
+
+    failure_note = (
+        "\n\n## Failure\n"
+        f"{reason.strip()}\n"
+    )
+    current_content = task_file.read_text(encoding="utf-8")
+    if "## Failure" not in current_content:
+        task_file.write_text(current_content.rstrip() + failure_note, encoding="utf-8")
+
+    destination = failed_dir / task_file.name
+    task_file.rename(destination)
+    return destination
+
+
 def _list_pending_tasks() -> list[str]:
     tasks_dir = workspace_dir / "tasks"
     if not tasks_dir.exists():
@@ -408,11 +425,19 @@ async def main() -> None:
         cycle += 1
         print(f"\n=== Evolvo cycle {cycle} ===")
 
+        active_task: Path | None = None
         try:
+            pending_tasks = _list_pending_tasks()
+            if pending_tasks:
+                active_task = workspace_dir / "tasks" / pending_tasks[0]
             await _run_cycle(cycle)
         except Exception as exc:
-            print(f"[cycle {cycle}] stopping: {exc}")
-            return
+            if active_task is not None and active_task.exists():
+                failed_task = _mark_task_failed(active_task, str(exc))
+                print(f"[cycle {cycle}] task failed and moved to {failed_task}: {exc}")
+            else:
+                print(f"[cycle {cycle}] stopping: {exc}")
+                return
 
         await asyncio.sleep(2)
 
