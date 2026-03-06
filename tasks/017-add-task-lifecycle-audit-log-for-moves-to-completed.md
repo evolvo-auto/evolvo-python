@@ -1,4 +1,4 @@
-# Task 017: Add task lifecycle audit log for moves to completed
+# Task: 017: Add task lifecycle audit log for moves to completed
 
 ## Goal
 Increase traceability by recording when tasks move from `./tasks/` to `./completed_tasks/` and what was changed during the run.

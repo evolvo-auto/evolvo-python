@@ -1,4 +1,4 @@
-# Task 015: Fix `shell_excecutor.py` typo with backward-compatible import
+# Task: 015: Fix `shell_excecutor.py` typo with backward-compatible import
 
 ## Goal
 Improve code clarity by correcting the misspelled module name `shell_excecutor.py` to `shell_executor.py` without breaking existing imports.

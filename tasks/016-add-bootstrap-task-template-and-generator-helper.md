@@ -1,4 +1,4 @@
-# Task 016: Add bootstrap task template and generator helper
+# Task: 016: Add bootstrap task template and generator helper
 
 ## Goal
 Reduce manual effort and improve consistency when seeding `./tasks/` by introducing a small task-template generator utility.
