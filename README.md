@@ -3,6 +3,9 @@
 2. Select one task as active and implement it in the filesystem.
 3. Validate outcomes with shell checks.
 4. Add reflections to the completed task and move it to `./completed_tasks/`.
+5. Verify task movement explicitly:
+   - Pending tasks: `ls -1 tasks`
+   - Completed tasks: `ls -1 completed_tasks`
 
 ## Self-improvement cycle
 - Keep at least 3 pending markdown task files in `./tasks/` before starting work.
