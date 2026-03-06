@@ -1,9 +1,11 @@
-## Acceptance criteria
-- README includes a short "Self-improvement cycle" section.
-- Section mentions minimum pending task count and moving completed tasks.
-- Wording is concise and consistent with repository behavior.
+# Task: Improve README self-improvement workflow notes
 
-## Reflection
-- Added a dedicated **Self-improvement cycle** section to `README.md`.
-- Explicitly documented the minimum pending task count (3), one-task-per-run constraint, and completion handoff to `completed_tasks/`.
-- This improves operational clarity without changing runtime behavior.
+## Why
+Document how task lifecycle files are expected to move between `tasks/` and `completed_tasks/`.
+
+## Scope
+- Add a concise section to README describing task creation, completion, and verification steps.
+
+## Acceptance Criteria
+- README includes a clear workflow section.
+- Notes include verification commands for both directories.
