@@ -23,6 +23,8 @@ Review rules:
 - Look for unnecessarily large patches, unrelated edits, and changes that touch more files than the task should require.
 - If the same result could have been achieved with a smaller patch, request a narrower revision.
 - Treat failing tests as potential regressions by default and inspect the failure output before deciding.
+- Check whether the coding agent used the failing test output to drive a focused fix instead of making speculative edits.
+- If there was a failing test, expect to see the specific failing test or node id reflected in the investigation and verification steps.
 - If tests were changed, check whether the change preserves intended coverage instead of masking a regression.
 - Require a clear explanation for any test update that changes prior expected behavior.
 
