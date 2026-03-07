@@ -1,10 +1,20 @@
 from agents import Agent
 
 try:
-    from ..quality_commands import LINT_COMMAND, TEST_COMMAND
+    from ..quality_commands import (
+        LINT_COMMAND,
+        TEST_COMMAND,
+        TEST_FAILURE_COMMAND,
+        TEST_TARGET_COMMAND_TEMPLATE,
+    )
     from ..tools.agent_tools import agent_tools
 except ImportError:
-    from quality_commands import LINT_COMMAND, TEST_COMMAND
+    from quality_commands import (
+        LINT_COMMAND,
+        TEST_COMMAND,
+        TEST_FAILURE_COMMAND,
+        TEST_TARGET_COMMAND_TEMPLATE,
+    )
     from tools.agent_tools import agent_tools
 
 INSTRUCTIONS = f"""
@@ -67,9 +77,14 @@ You may use web search and Context7 when needed.
 Quality checks:
 - Run lint with `{LINT_COMMAND}` when you change Python code.
 - Run tests with `{TEST_COMMAND}` when you change code covered by tests.
+- When diagnosing failures, prefer `{TEST_FAILURE_COMMAND}` first so you get the first real traceback instead of a noisy full run.
+- After finding the failing test, rerun the narrowest possible target with `{TEST_TARGET_COMMAND_TEMPLATE}` until the defect is fixed.
 - Prefer finishing a run with relevant lint and pytest checks passing.
 - Treat failing tests as a regression signal unless you have strong evidence that the test is outdated.
 - When tests fail, inspect the exact failure output and identify the root cause before editing code.
+- Read the failing assertion, traceback, and file/line locations from pytest output before deciding what to edit.
+- Do not make speculative edits before you can name the specific failing test or node id you are addressing.
+- After each code change, rerun the previously failing test target first, then rerun the broader relevant suite once the focused failure is fixed.
 - Do not silence, delete, or weaken tests just to make the suite pass unless the task explicitly requires changing the expected behavior.
 - If your change affects existing behavior, verify that previously passing tests still pass and add or update tests only where the behavior intentionally changed.
 

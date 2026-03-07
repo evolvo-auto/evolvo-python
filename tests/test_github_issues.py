@@ -1,6 +1,9 @@
 import json
 import os
 from unittest.mock import patch
+
+import pytest
+
 from app.tools.github.issues.create import create_issue
 from app.tools.github.issues.list import list_issues
 
@@ -20,7 +23,21 @@ class _FakeResponse:
 
 
 def test_list_issues_requires_owner_and_repo() -> None:
+    with patch.dict(os.environ, {}, clear=True):
+        with pytest.raises(RuntimeError, match="GITHUB_OWNER and GITHUB_REPO must be set"):
+            list_issues()
+
+
 def test_create_issue_rejects_empty_content() -> None:
+    with patch.dict(
+        os.environ,
+        {
+            "GITHUB_OWNER": "evolvo-auto",
+            "GITHUB_REPO": "evolvo-python",
+            "GITHUB_TOKEN": "pat-123",
+        },
+        clear=True,
+    ):
         with pytest.raises(ValueError, match="Issue content must not be empty"):
             create_issue("   ")
 
