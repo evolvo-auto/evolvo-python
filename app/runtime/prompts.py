@@ -37,7 +37,11 @@ def build_bootstrap_review_prompt(
     pr_url: str,
     coding_output: str,
     review_round: int,
+    changed_files: list[str],
+    diff_stat: str,
+    diff_patch: str,
 ) -> str:
+    changed_files_block = "\n".join(f"- {path}" for path in changed_files) or "- (no files reported)"
     return f"""
 Review round {review_round}.
 
@@ -48,8 +52,20 @@ Pull request URL: {pr_url}
 Coding agent final response:
 {coding_output}
 
+Changed files:
+{changed_files_block}
+
+Diff stat:
+{diff_stat}
+
+Diff patch excerpt:
+{diff_patch}
+
 Review requirements:
 - Review the pull request itself, not just the coding agent narrative.
+- Start from the provided changed-file list, diff stat, and diff patch excerpt, then verify them with shell inspection if needed.
+- Inspect the full PR diff and changed-file list before deciding.
+- Reject the bootstrap PR if it changes unrelated files or is larger than needed for creating task files.
 - Verify that `./tasks/` now contains at least 3 valid markdown task files.
 - Verify that the task files are concrete and relevant to improving the repository.
 - Approve only if the backlog bootstrap result is ready to merge into `main`.
@@ -108,7 +124,11 @@ def build_pr_review_prompt(
     pr_url: str,
     coding_output: str,
     review_round: int,
+    changed_files: list[str],
+    diff_stat: str,
+    diff_patch: str,
 ) -> str:
+    changed_files_block = "\n".join(f"- {path}" for path in changed_files) or "- (no files reported)"
     return f"""
 Review round {review_round}.
 
@@ -119,9 +139,22 @@ Pull request URL: {pr_url}
 Coding agent final response:
 {coding_output}
 
+Changed files:
+{changed_files_block}
+
+Diff stat:
+{diff_stat}
+
+Diff patch excerpt:
+{diff_patch}
+
 Review requirements:
 - Review the pull request itself, not just the coding agent narrative.
+- Start from the provided changed-file list, diff stat, and diff patch excerpt, then verify them with shell inspection if needed.
 - Use `gh pr view`, `gh pr diff`, and shell inspection as needed.
+- Inspect the full diff and changed-file list before deciding.
+- Check that every file touched by the PR is necessary for the task.
+- Reject overly broad patches, unrelated edits, and avoidable rewrites.
 - Verify that the active task was completed correctly and that any claimed completed
   task move actually happened.
 - Verify that the code and tests on the branch match the coding agent's summary.

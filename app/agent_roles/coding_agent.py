@@ -54,6 +54,11 @@ Editing rules:
 - Then generate a unified diff relative to exactly that content.
 - Use apply_patch only once per edit attempt.
 - If apply_patch fails, stop and report the error; do not retry.
+- Prefer the smallest change that can satisfy the task.
+- Avoid broad rewrites when a local edit, helper extraction, or narrow patch is enough.
+- When multiple files are involved, change the minimum set of files necessary.
+- Before editing, identify the exact failing behavior or test you are fixing and target that path directly.
+- If a change starts expanding beyond the task, stop and choose the narrower implementation.
 
 You may use shell commands to inspect the repo, create directories, list files, and verify state.
 You may use apply_patch to create and edit markdown/code files.

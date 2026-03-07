@@ -15,6 +15,7 @@ try:
         ensure_clean_git,
         ensure_on_main_branch,
         ensure_pull_request,
+        get_branch_diff_summary,
         get_changed_paths,
         has_code_changes,
         merge_pull_request,
@@ -49,6 +50,7 @@ except ImportError:
         ensure_clean_git,
         ensure_on_main_branch,
         ensure_pull_request,
+        get_branch_diff_summary,
         get_changed_paths,
         has_code_changes,
         merge_pull_request,
@@ -124,6 +126,7 @@ async def bootstrap_tasks_if_needed(cycle: int, workspace_dir: Path) -> None:
             build_bootstrap_pr_body(cycle),
         )
         pr_url = pr.url
+        diff_summary = get_branch_diff_summary(workspace_dir)
 
         review_summary = await run_agent(
             reviewer_agent,
@@ -132,6 +135,9 @@ async def bootstrap_tasks_if_needed(cycle: int, workspace_dir: Path) -> None:
                 pr.url,
                 coding_summary.final_output,
                 review_round,
+                diff_summary.changed_files,
+                diff_summary.diff_stat,
+                diff_summary.diff_patch,
             ),
             agent_label="review",
         )
@@ -211,6 +217,7 @@ async def run_cycle(cycle: int, workspace_dir: Path) -> None:
             build_pull_request_body(active_task, cycle),
         )
         pr_url = pr.url
+        diff_summary = get_branch_diff_summary(workspace_dir)
 
         review_summary = await run_agent(
             reviewer_agent,
@@ -220,6 +227,9 @@ async def run_cycle(cycle: int, workspace_dir: Path) -> None:
                 pr.url,
                 coding_summary.final_output,
                 review_round,
+                diff_summary.changed_files,
+                diff_summary.diff_stat,
+                diff_summary.diff_patch,
             ),
             agent_label="review",
         )

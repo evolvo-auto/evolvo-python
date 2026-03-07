@@ -9,6 +9,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.git_workflow import (
+    BranchDiffSummary,
     PullRequestInfo,
     _build_github_auth_env,
     _origin_https_extraheader,
@@ -21,6 +22,7 @@ from app.git_workflow import (
     ensure_clean_git,
     ensure_on_main_branch,
     ensure_pull_request,
+    get_branch_diff_summary,
     get_changed_paths,
     get_current_branch,
     has_code_changes,
@@ -89,6 +91,66 @@ class GitWorkflowTests(unittest.TestCase):
         self.assertTrue(has_code_changes(["app/main.py"]))
         self.assertTrue(has_code_changes(["tests/test_git_workflow.py"]))
         self.assertFalse(has_code_changes(["tasks/009-add-commit-system.md"]))
+
+    def test_get_branch_diff_summary_collects_changed_files_stat_and_patch(self) -> None:
+        calls: list[list[str]] = []
+
+        def fake_run_git(root: Path, args: list[str]) -> CompletedProcess[str]:
+            calls.append(args)
+            if args[:3] == ["diff", "--name-only", "main...HEAD"]:
+                return CompletedProcess(args=["git", *args], returncode=0, stdout="app/main.py\ntests/test_main.py\n", stderr="")
+            if args[:3] == ["diff", "--stat", "main...HEAD"]:
+                return CompletedProcess(
+                    args=["git", *args],
+                    returncode=0,
+                    stdout=" app/main.py | 10 +++++-----\n 1 file changed, 5 insertions(+), 5 deletions(-)\n",
+                    stderr="",
+                )
+            if args[:3] == ["diff", "--unified=3", "main...HEAD"]:
+                return CompletedProcess(
+                    args=["git", *args],
+                    returncode=0,
+                    stdout="diff --git a/app/main.py b/app/main.py\n@@ -1 +1 @@\n-old\n+new\n",
+                    stderr="",
+                )
+            raise AssertionError(args)
+
+        with patch("app.git_workflow._run_git", side_effect=fake_run_git):
+            summary = get_branch_diff_summary(Path("."))
+
+        self.assertEqual(
+            summary,
+            BranchDiffSummary(
+                changed_files=["app/main.py", "tests/test_main.py"],
+                diff_stat="app/main.py | 10 +++++-----\n 1 file changed, 5 insertions(+), 5 deletions(-)",
+                diff_patch="diff --git a/app/main.py b/app/main.py\n@@ -1 +1 @@\n-old\n+new",
+            ),
+        )
+        self.assertEqual(
+            calls,
+            [
+                ["diff", "--name-only", "main...HEAD"],
+                ["diff", "--stat", "main...HEAD"],
+                ["diff", "--unified=3", "main...HEAD"],
+            ],
+        )
+
+    def test_get_branch_diff_summary_truncates_large_patch_output(self) -> None:
+        large_patch = "x" * 20
+
+        def fake_run_git(root: Path, args: list[str]) -> CompletedProcess[str]:
+            if args[:2] == ["diff", "--name-only"]:
+                return CompletedProcess(args=["git", *args], returncode=0, stdout="", stderr="")
+            if args[:2] == ["diff", "--stat"]:
+                return CompletedProcess(args=["git", *args], returncode=0, stdout="", stderr="")
+            if args[:2] == ["diff", "--unified=3"]:
+                return CompletedProcess(args=["git", *args], returncode=0, stdout=large_patch, stderr="")
+            raise AssertionError(args)
+
+        with patch("app.git_workflow._run_git", side_effect=fake_run_git):
+            summary = get_branch_diff_summary(Path("."), max_patch_chars=10)
+
+        self.assertEqual(summary.diff_patch, "xxxxxxxxxx\n\n[truncated 10 characters]")
 
     def test_build_cycle_commit_message_uses_completed_task_slug_when_available(self) -> None:
         message = build_cycle_commit_message(["009-add-commit-system.md"])

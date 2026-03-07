@@ -7,6 +7,8 @@ from pathlib import Path
 
 REQUIRED_HEADERS: tuple[str, ...] = (
     "# Task",
+    "## Scope",
+    "## Acceptance Criteria",
 )
 
 

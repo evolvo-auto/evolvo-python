@@ -18,6 +18,13 @@ class PullRequestInfo:
     branch: str
 
 
+@dataclass
+class BranchDiffSummary:
+    changed_files: list[str]
+    diff_stat: str
+    diff_patch: str
+
+
 def _get_github_token() -> str | None:
     for key in ("GH_TOKEN", "GITHUB_TOKEN", "GITHUB_PAT"):
         value = os.environ.get(key)
@@ -125,6 +132,51 @@ def _parse_status_path(line: str) -> str:
 
 def get_changed_paths(root: Path) -> list[str]:
     return sorted(_parse_status_path(line) for line in get_git_status_lines(root))
+
+
+def _truncate_text(value: str, limit: int) -> str:
+    if len(value) <= limit:
+        return value
+    truncated_chars = len(value) - limit
+    return f"{value[:limit]}\n\n[truncated {truncated_chars} characters]"
+
+
+def get_branch_diff_summary(
+    root: Path,
+    base_ref: str = "main",
+    head_ref: str = "HEAD",
+    max_patch_chars: int = 12000,
+) -> BranchDiffSummary:
+    diff_range = f"{base_ref}...{head_ref}"
+
+    changed_files_result = _run_git(root, ["diff", "--name-only", diff_range])
+    if changed_files_result.returncode != 0:
+        raise RuntimeError(changed_files_result.stderr.strip() or "git diff --name-only failed")
+
+    diff_stat_result = _run_git(root, ["diff", "--stat", diff_range])
+    if diff_stat_result.returncode != 0:
+        raise RuntimeError(diff_stat_result.stderr.strip() or "git diff --stat failed")
+
+    diff_patch_result = _run_git(root, ["diff", "--unified=3", diff_range])
+    if diff_patch_result.returncode != 0:
+        raise RuntimeError(diff_patch_result.stderr.strip() or "git diff failed")
+
+    changed_files = [
+        line.strip()
+        for line in changed_files_result.stdout.splitlines()
+        if line.strip()
+    ]
+    diff_stat = diff_stat_result.stdout.strip() or "(no diff stat available)"
+    diff_patch = _truncate_text(
+        diff_patch_result.stdout.strip() or "(no diff patch available)",
+        max_patch_chars,
+    )
+
+    return BranchDiffSummary(
+        changed_files=changed_files,
+        diff_stat=diff_stat,
+        diff_patch=diff_patch,
+    )
 
 
 def has_code_changes(changed_paths: list[str]) -> bool:
