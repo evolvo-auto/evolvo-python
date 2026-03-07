@@ -95,7 +95,7 @@ The active task for this run is `{active_task.as_posix()}`.
 Work only on that task and any directly necessary supporting code changes.
 Git branch for this task: `{branch_name}`.
 {pr_line}
-If fewer than 3 pending tasks exist in ./tasks/, you may create additional task files
+If fewer than 1 pending tasks exist in ./tasks/, you may create additional task files
 before finishing the active task.
 After completing the active task, stop so the outer Python loop can handle commit,
 push, PR review, and merge.
