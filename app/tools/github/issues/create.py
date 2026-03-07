@@ -20,6 +20,7 @@ def create_issue(content: str) -> dict:
         raise ValueError("Issue content must not be empty.")
 
     headers = build_headers()
+    headers["Content-Type"] = "application/json"
     payload = json.dumps({"title": body}).encode("utf-8")
     request = Request(
         f"https://api.github.com/repos/{owner}/{repo}/issues",

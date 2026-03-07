@@ -42,6 +42,29 @@ def test_create_issue_rejects_empty_content() -> None:
             create_issue("   ")
 
 
+def test_create_issue_sends_json_with_auth_header() -> None:
+    payload = json.dumps({"id": 42, "title": "New issue"}).encode("utf-8")
+
+    with patch.dict(
+        os.environ,
+        {
+            "GITHUB_OWNER": "evolvo-auto",
+            "GITHUB_REPO": "evolvo-python",
+            "GITHUB_TOKEN": "pat-123",
+        },
+        clear=True,
+    ), patch("app.tools.github.issues.create.urlopen", return_value=_FakeResponse(payload)) as mocked_open:
+        result = create_issue("New issue")
+
+    assert result == {"id": 42, "title": "New issue"}
+    mocked_open.assert_called_once()
+    request = mocked_open.call_args.args[0]
+    headers = {key.lower(): value for key, value in request.header_items()}
+    assert request.full_url == "https://api.github.com/repos/evolvo-auto/evolvo-python/issues"
+    assert headers["authorization"] == "Bearer pat-123"
+    assert headers["content-type"] == "application/json"
+
+
 def test_list_issues_returns_parsed_list_and_filters_pull_requests() -> None:
     payload = json.dumps(
         [

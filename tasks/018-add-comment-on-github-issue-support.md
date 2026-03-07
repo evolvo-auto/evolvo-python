@@ -3,7 +3,7 @@
 ## Scope
 - Add a new utility in `/app/tools/github/issues/comment.py`.
 - Expose a `comment_on_issue(issue_id: str, content: str)` function.
-- Take heavy inspiration from `/app/tools/github/issues/list.py`.
+- Take heavy inspiration from `/app/tools/github/issues/list.py`and `/app/tools/github/issues/create.py`.
 - Add a corresponding test file for this utility.
 - Keep the change minimal and do not integrate this function into existing runtime flows yet.
 - Limit changes strictly to what is needed for this task.
